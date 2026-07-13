@@ -30,12 +30,19 @@ class _ModelSelectionBottomSheetState extends State<ModelSelectionBottomSheet> {
 
   OllamaModel? _selectedModel;
   List<OllamaModel> _models = [];
+  Set<String> _favoriteNames = {};
+
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
 
   var _state = OllamaRequestState.uninitialized;
   late CancelableOperation _fetchOperation;
 
   /// Cache key derived from server address
   String get _cacheKey => Hive.box('settings').get('serverAddress') ?? 'default';
+
+  /// Storage key for the favorite model names of the current server
+  String get _favoritesKey => 'favoriteModels::$_cacheKey';
 
   @override
   void initState() {
@@ -46,6 +53,11 @@ class _ModelSelectionBottomSheetState extends State<ModelSelectionBottomSheet> {
     // Load the previous state of the models list
     _models = _modelsBucket.readState(context, identifier: _cacheKey) ?? [];
     _selectedModel = _findModelByName(widget.currentModelName);
+    _favoriteNames = _loadFavoriteNames();
+
+    _searchController.addListener(() {
+      setState(() => _searchQuery = _searchController.text);
+    });
 
     _fetchOperation = CancelableOperation.fromFuture(_fetchModels());
   }
@@ -53,6 +65,7 @@ class _ModelSelectionBottomSheetState extends State<ModelSelectionBottomSheet> {
   @override
   void dispose() {
     _fetchOperation.cancel();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -63,6 +76,41 @@ class _ModelSelectionBottomSheetState extends State<ModelSelectionBottomSheet> {
     } catch (_) {
       return null;
     }
+  }
+
+  Set<String> _loadFavoriteNames() {
+    final stored = Hive.box('settings').get(_favoritesKey) as List?;
+    return stored?.cast<String>().toSet() ?? {};
+  }
+
+  void _toggleFavorite(String modelName) {
+    setState(() {
+      if (_favoriteNames.contains(modelName)) {
+        _favoriteNames.remove(modelName);
+      } else {
+        _favoriteNames.add(modelName);
+      }
+    });
+    Hive.box('settings').put(_favoritesKey, _favoriteNames.toList());
+  }
+
+  List<OllamaModel> get _searchFilteredModels {
+    if (_searchQuery.isEmpty) return _models;
+
+    final query = _searchQuery.toLowerCase();
+    return _models.where((m) => m.name.toLowerCase().contains(query)).toList();
+  }
+
+  List<OllamaModel> get _favoriteModels {
+    final favorites = _searchFilteredModels.where((m) => _favoriteNames.contains(m.name)).toList();
+    favorites.sort((a, b) => a.name.compareTo(b.name));
+    return favorites;
+  }
+
+  List<OllamaModel> get _otherModels {
+    final others = _searchFilteredModels.where((m) => !_favoriteNames.contains(m.name)).toList();
+    others.sort((a, b) => a.name.compareTo(b.name));
+    return others;
   }
 
   Future<void> _fetchModels() async {
@@ -108,6 +156,7 @@ class _ModelSelectionBottomSheetState extends State<ModelSelectionBottomSheet> {
             ],
           ),
           const Divider(),
+          if (_models.isNotEmpty) _buildSearchField(context),
           Expanded(child: _buildBody(context)),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
@@ -123,6 +172,27 @@ class _ModelSelectionBottomSheetState extends State<ModelSelectionBottomSheet> {
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSearchField(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: TextField(
+        controller: _searchController,
+        decoration: InputDecoration(
+          hintText: 'Search models',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: _searchQuery.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () => _searchController.clear(),
+                )
+              : null,
+          isDense: true,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        ),
       ),
     );
   }
@@ -144,31 +214,85 @@ class _ModelSelectionBottomSheetState extends State<ModelSelectionBottomSheet> {
         return const Center(child: Text('No models found.'));
       }
 
-      return RefreshIndicator(
-        onRefresh: () async {
-          _fetchOperation = CancelableOperation.fromFuture(_fetchModels());
-        },
-        child: RadioGroup<OllamaModel>(
-          groupValue: _selectedModel,
-          onChanged: (model) => setState(() => _selectedModel = model),
-          child: ListView.builder(
-            itemCount: _models.length,
-            itemBuilder: (context, index) {
-              return _ModelListTile(model: _models[index]);
-            },
-          ),
-        ),
-      );
+      return _buildModelsList(context);
     } else {
       return const SizedBox.shrink();
     }
+  }
+
+  Widget _buildModelsList(BuildContext context) {
+    final favorites = _favoriteModels;
+    final others = _otherModels;
+
+    return RefreshIndicator(
+      onRefresh: () async {
+        _fetchOperation = CancelableOperation.fromFuture(_fetchModels());
+      },
+      child: favorites.isEmpty && others.isEmpty
+          ? Center(child: Text('No models match "$_searchQuery".'))
+          : RadioGroup<OllamaModel>(
+              groupValue: _selectedModel,
+              onChanged: (model) => setState(() => _selectedModel = model),
+              child: ListView(
+                children: [
+                  if (favorites.isNotEmpty) ...[
+                    const _SectionHeader(label: 'Favorites'),
+                    for (final model in favorites)
+                      _ModelListTile(
+                        model: model,
+                        isFavorite: true,
+                        onToggleFavorite: () => _toggleFavorite(model.name),
+                      ),
+                    const Divider(),
+                  ],
+                  if (others.isNotEmpty) ...[
+                    if (favorites.isNotEmpty) const _SectionHeader(label: 'All Models'),
+                    for (final model in others)
+                      _ModelListTile(
+                        model: model,
+                        isFavorite: false,
+                        onToggleFavorite: () => _toggleFavorite(model.name),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String label;
+
+  const _SectionHeader({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Text(
+        label,
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: theme.colorScheme.primary,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
   }
 }
 
 class _ModelListTile extends StatelessWidget {
   final OllamaModel model;
+  final bool isFavorite;
+  final VoidCallback onToggleFavorite;
 
-  const _ModelListTile({required this.model});
+  const _ModelListTile({
+    required this.model,
+    required this.isFavorite,
+    required this.onToggleFavorite,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -184,13 +308,23 @@ class _ModelListTile extends StatelessWidget {
               style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             )
           : null,
-      secondary: capabilities != null
-          ? Row(
-              spacing: 8,
-              mainAxisSize: MainAxisSize.min,
-              children: _buildCapabilityChips(capabilities),
-            )
-          : null,
+      secondary: Row(
+        spacing: 8,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (capabilities != null) ..._buildCapabilityChips(capabilities),
+          IconButton(
+            icon: Icon(
+              isFavorite ? Icons.star : Icons.star_border,
+              color: isFavorite ? Colors.amber : null,
+            ),
+            tooltip: isFavorite ? 'Remove from favorites' : 'Add to favorites',
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints(),
+            onPressed: onToggleFavorite,
+          ),
+        ],
+      ),
     );
   }
 
