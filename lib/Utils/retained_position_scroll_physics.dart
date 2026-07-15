@@ -40,8 +40,12 @@ class RetainedPositionScrollPhysics extends ScrollPhysics {
       // so we need to return the original position
       return adjustPosition;
     } else {
-      // Add the delta height to keep the scroll position stable
-      return adjustPosition + widgetSizeProxy.deltaHeight;
+      // Add the delta height to keep the scroll position stable, then consume it
+      // so unrelated dimension changes (e.g. scrolling through the list) don't
+      // keep re-applying a stale delta from the last message resize.
+      final delta = widgetSizeProxy.deltaHeight;
+      widgetSizeProxy.deltaHeight = 0.0;
+      return adjustPosition + delta;
     }
   }
 }
