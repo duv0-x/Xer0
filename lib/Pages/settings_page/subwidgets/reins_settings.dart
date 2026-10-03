@@ -8,7 +8,7 @@ import 'package:reins/Widgets/glitch_text.dart';
 class ReinsSettings extends StatelessWidget {
   const ReinsSettings({super.key});
 
-  static const _repoUrl = 'https://github.com/CloudCraft-Studio/Xer0';
+  static const _repoUrl = 'https://github.com/duv0-x/Xer0';
 
   @override
   Widget build(BuildContext context) {

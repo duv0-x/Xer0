@@ -1,6 +1,6 @@
 # Xer0
 
-**Xer0** is a cyberpunk-themed chat client for [Ollama](https://ollama.com), built by [CloudCraft Studio](https://github.com/CloudCraft-Studio). It is a privacy-first, multi-platform app to chat with self-hosted LLMs, with per-conversation control over system prompts, model selection, and generation options.
+**Xer0** is a cyberpunk-themed chat client for [Ollama](https://ollama.com), built by [CloudCraft Studio](https://github.com/duv0-x). It is a privacy-first, multi-platform app to chat with self-hosted LLMs, with per-conversation control over system prompts, model selection, and generation options.
 
 > Xer0 is a fork of [Reins](https://github.com/ibrahimcetin/reins) by İbrahim Çetin. See [Credits & License](#credits--license).
 
